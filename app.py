@@ -1,13 +1,28 @@
 import streamlit as st
 import pandas as pd
-import numpy as np
-import librosa
-import soundfile as sf
 import io
 import re
-import tempfile
-import os
 from datetime import datetime
+
+# 尝试导入音频分析库（可选）
+try:
+    import numpy as np
+    HAS_NUMPY = True
+except ImportError:
+    HAS_NUMPY = False
+    np = None
+
+try:
+    import librosa
+    HAS_LIBROSA = True
+except ImportError:
+    HAS_LIBROSA = False
+
+try:
+    import soundfile as sf
+    HAS_SOUND_FILE = True
+except ImportError:
+    HAS_SOUND_FILE = False
 
 # ========== 工具函数 ==========
 
@@ -16,7 +31,7 @@ MONTHS = [f"{i}月新歌" for i in range(1, 13)]
 # 过度电子化的风格关键词（高难歌排除）
 ELECTRONIC_KEYWORDS = ["电音", "电子", "EDM", "Synth", "合成器", "Techno", "House", "Trance"]
 # 鼓点明确/摇摆性强的风格关键词（高难歌优先）
-GOOD_STYLE_KEYWORDS = ["嘻哈", "嘻哈说唱", "R&B", "Pop", "Dance", "放克", "迪斯科", "Funk", "Disco", "Hip", "Pop", "Dance-Pop"]
+GOOD_STYLE_KEYWORDS = ["嘻哈", "嘻哈说唱", "R&B", "Pop", "Dance", "放克", "迪斯科", "Funk", "Disco", "Hip", "Dance-Pop"]
 
 def norm(s):
     if pd.isna(s):
@@ -140,12 +155,9 @@ def select_pc_songs(records_df, exclude_japanese=True, dedup_set=None):
 
 def build_dedup_set_from_file(uploaded_file):
     try:
-        df = pd.read_excel(uploaded_file, engine='calamine', header=None)
-    except:
-        try:
-            df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
-        except Exception as e:
-            return set(), f"读取查重表失败: {e}"
+        df = pd.read_excel(uploaded_file, engine='openpyxl', header=None)
+    except Exception as e:
+        return set(), f"读取查重表失败: {e}"
 
     dedup = set()
     for i in range(len(df)):
@@ -161,7 +173,14 @@ def build_dedup_set_from_file(uploaded_file):
 
 
 def analyze_bpm(audio_bytes, filename):
+    """分析音频BPM（需要librosa）"""
+    if not HAS_LIBROSA:
+        return None, "未安装音频分析库(librosa)，此功能不可用", ""
+
     try:
+        import tempfile
+        import os
+
         suffix = os.path.splitext(filename)[1] or '.mp3'
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(audio_bytes)
@@ -363,7 +382,7 @@ def main():
             st.success(f"已上传：{jujiang_file.name}")
             try:
                 jujiang_file.seek(0)
-                xl = pd.ExcelFile(jujiang_file, engine='calamine')
+                xl = pd.ExcelFile(jujiang_file, engine='openpyxl')
                 target_sheet = None
                 for i, name in enumerate(xl.sheet_names):
                     if "选歌记录" in name and "神同步" not in name:
@@ -371,7 +390,7 @@ def main():
                         break
                 if target_sheet:
                     jujiang_file.seek(0)
-                    df = pd.read_excel(jujiang_file, sheet_name=target_sheet, engine='calamine', header=0)
+                    df = pd.read_excel(jujiang_file, sheet_name=target_sheet, engine='openpyxl', header=0)
                     st.session_state._jujiang_df = df
                     st.success(f"已加载「{target_sheet}」，共 {len(df)} 行")
                     with st.expander("查看列名"):
@@ -566,33 +585,37 @@ def main():
         st.caption("支持 MP3、WAV、FLAC、OGG 等常见音频格式")
         st.caption("BPM 检测结果将精确到小数点后两位")
 
-        audio_files = st.file_uploader(
-            "上传音频文件（可多选）",
-            type=["mp3", "wav", "flac", "ogg", "m4a", "aac"],
-            accept_multiple_files=True,
-            key="upload_audio"
-        )
+        if not HAS_LIBROSA:
+            st.warning("音频分析功能需要安装 librosa 库。当前为云端版本，暂不支持音频检测。")
+            st.info("建议：在本地版本中使用此功能（双击 start.bat 启动）")
+        else:
+            audio_files = st.file_uploader(
+                "上传音频文件（可多选）",
+                type=["mp3", "wav", "flac", "ogg", "m4a", "aac"],
+                accept_multiple_files=True,
+                key="upload_audio"
+            )
 
-        if audio_files and st.button("开始BPM检测", type="primary", use_container_width=True, key="btn_start_bpm"):
-            results = []
-            progress = st.progress(0, text="正在检测BPM...")
-            for i, audio_file in enumerate(audio_files):
-                st.write(f"正在检测：{audio_file.name}")
-                audio_bytes = audio_file.read()
-                bpm, stability, detail = analyze_bpm(audio_bytes, audio_file.name)
-                results.append({
-                    '文件名': audio_file.name,
-                    '检测BPM': f"{bpm:.2f}" if bpm else "失败",
-                    '稳定性': stability,
-                    '详情': detail
-                })
-                progress.progress((i + 1) / len(audio_files), text=f"已完成 {i+1}/{len(audio_files)}")
+            if audio_files and st.button("开始BPM检测", type="primary", use_container_width=True, key="btn_start_bpm"):
+                results = []
+                progress = st.progress(0, text="正在检测BPM...")
+                for i, audio_file in enumerate(audio_files):
+                    st.write(f"正在检测：{audio_file.name}")
+                    audio_bytes = audio_file.read()
+                    bpm, stability, detail = analyze_bpm(audio_bytes, audio_file.name)
+                    results.append({
+                        '文件名': audio_file.name,
+                        '检测BPM': f"{bpm:.2f}" if bpm else "失败",
+                        '稳定性': stability,
+                        '详情': detail
+                    })
+                    progress.progress((i + 1) / len(audio_files), text=f"已完成 {i+1}/{len(audio_files)}")
 
-            progress.empty()
-            st.session_state.bpm_check_results = results
-            st.success("BPM检测完成！")
-            st.session_state.step = 6
-            st.rerun()
+                progress.empty()
+                st.session_state.bpm_check_results = results
+                st.success("BPM检测完成！")
+                st.session_state.step = 6
+                st.rerun()
 
         st.divider()
         if st.button("← 上一步", use_container_width=True, key="btn_prev_5"):
