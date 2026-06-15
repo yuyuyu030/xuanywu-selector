@@ -1,0 +1,9 @@
+streamlit
+pandas
+openpyxl
+calamine
+librosa
+soundfile
+numpy
+scipy
+xlsxwriter

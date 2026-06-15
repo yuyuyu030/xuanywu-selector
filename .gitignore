@@ -1,0 +1,10 @@
+*.pyc
+__pycache__/
+*.xlsx
+*.xls
+.env
+streamlit.log
+*.mp3
+*.wav
+*.flac
+.streamlit/
